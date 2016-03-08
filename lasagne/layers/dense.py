@@ -10,6 +10,7 @@ from .base import Layer
 __all__ = [
     "DenseLayer",
     "NINLayer",
+    "DenseTensorLayer"
 ]
 
 
@@ -190,3 +191,49 @@ class NINLayer(Layer):
             activation = out + b_shuffled
 
         return self.nonlinearity(activation)
+
+
+
+
+
+class DenseTensorLayer(Layer):
+    """3d tensors with features on last dimension get embedded as:
+        b,n,f -> T.dot((b*n,f), (f,h)) -> b*n,h -> b,n,h
+
+        squash will flatten to squash dimesniosn
+        so, T.flatten(output, squash)
+    """
+    def __init__(self, incoming, num_units, squash=None, W=init.GlorotUniform(),
+                 b=init.Constant(0.), nonlinearity=None,
+                 **kwargs):
+        super(DenseTensorLayer, self).__init__(incoming, **kwargs)
+        self.nonlinearity = (nonlinearities.identity if nonlinearity is None
+                             else nonlinearity)
+
+        self.num_units = num_units
+
+        num_inputs = self.input_shape[-1]
+
+        self.W = self.add_param(W, (num_inputs, num_units), name="W")
+        if b is None:
+            self.b = None
+        else:
+            self.b = self.add_param(b, (num_units,), name="b",
+                                    regularizable=False)
+        self.squash = squash
+
+    def get_output_shape_for(self, input_shape):
+        """ (batch, num_example, features_to_embed) """
+        return (input_shape[0], input_shape[1], self.num_units)
+
+    def get_output_for(self, incoming, **kwargs):
+        b,n,f = incoming.shape
+        reshaped = incoming.reshape((b*n, f))
+        embedded = T.dot(reshaped, self.W)
+        outgoing = embedded.reshape((b,n,self.num_units))
+
+        if self.b is not None:
+            outgoing = outgoing + self.b.dimshuffle('x', 0)
+        if self.squash:
+            outgoing = T.flatten(outgoing, self.squash)
+        return self.nonlinearity(outgoing)

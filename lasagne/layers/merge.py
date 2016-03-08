@@ -1,6 +1,7 @@
 import theano.tensor as T
 
 from .base import MergeLayer
+from .. import init, nonlinearities
 
 
 __all__ = [
@@ -10,6 +11,8 @@ __all__ = [
     "concat",
     "ElemwiseMergeLayer",
     "ElemwiseSumLayer",
+    "WeightedSumLayer",
+    "AlignLayer"
 ]
 
 
@@ -400,3 +403,77 @@ class ElemwiseSumLayer(ElemwiseMergeLayer):
 
         # pass scaled inputs to the super class for summing
         return super(ElemwiseSumLayer, self).get_output_for(inputs, **kwargs)
+
+
+
+
+class WeightedSumLayer(MergeLayer):
+    def __init__(self, incomings, weights=None, **kwargs):
+        super(WeightedSumLayer, self).__init__(incomings, **kwargs)
+        self.weights = weights or [1. for _ in incomings]
+
+    def get_output_shape_for(self, input_shapes):
+        return input_shapes[0]
+
+    def get_output_for(self, inputs, **kwargs):
+        return sum(w*i for w,i in zip(self.weights, inputs))
+
+
+
+
+
+class AlignLayer(MergeLayer):
+    """
+    take as input two layers and combine them by aligning with 2 weight matrices
+    and then pass them through a non linearity
+
+    optionally, the weight matrix for either of the two may be passed in
+    """
+    def __init__(self, incomings, num_units, W1=init.GlorotUniform(),
+                 W2=init.GlorotUniform(), b=init.Constant(0.),
+                 nonlinearity=None, **kwargs):
+        super(AlignLayer, self).__init__(incomings, **kwargs)
+
+        self.nonlinearity = (nonlinearities.rectify if nonlinearity is None
+                             else nonlinearity)
+
+        self.num_units = num_units
+
+        num_in1 = self.input_shapes[0][-1]
+        num_in2 = self.input_shapes[1][-1]
+
+        self.W1 = self.add_param(W1, (num_in1, num_units), name="W1")
+        self.W2 = self.add_param(W2, (num_in2, num_units), name="W2")
+
+        if b is None:
+            self.b = None
+        else:
+            self.b = self.add_param(b, (num_units,), name="b",
+                                    regularizable=False)
+
+    def get_output_shape_for(self, input_shapes):
+        """ returns (batch,embed_size) """
+        inshape1, inshape2 = input_shapes
+        if len(inshape1) > len(inshape2):
+            return tuple(inshape1[:2]) + (self.num_units, )
+        else:
+            return (inshape1[0], self.num_units)
+
+    def get_output_for(self, incoming, **kwargs):
+        in1, in2 = incoming
+        if in1.ndim > in2.ndim:
+            b,n,f = in1.shape
+            in1 = in1.reshape((b*n, f))
+            comp1 = T.dot(in1, self.W1)
+            out1 = comp1.reshape((b,n,self.num_units))
+            assert in2.ndim == 2
+            out2 = T.dot(in2, self.W2).reshape((b, 1, self.num_units))
+            outgoing = out1 + out2
+        else:
+            outgoing = T.dot(in1, self.W1) + T.dot(in2, self.W2)
+
+        if self.b is not None:
+            outgoing = outgoing + self.b.dimshuffle('x', 0)
+
+        return self.nonlinearity(outgoing)
+
