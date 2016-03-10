@@ -58,7 +58,7 @@ class Normal(Initializer):
     mean : float
         Mean of initial parameters.
     """
-    def __init__(self, std=0.01, mean=0.0):
+    def __init__(self, std=0.01, mean=0.0, **kwargs):
         self.std = std
         self.mean = mean
 
@@ -83,7 +83,7 @@ class Uniform(Initializer):
     mean : float
         see std for description.
     """
-    def __init__(self, range=0.01, std=None, mean=0.0):
+    def __init__(self, range=0.01, std=None, mean=0.0, strictly_positive=False):
         if std is not None:
             a = mean - np.sqrt(3) * std
             b = mean + np.sqrt(3) * std
@@ -156,6 +156,10 @@ class Glorot(Initializer):
         self.initializer = initializer
         self.gain = gain
         self.c01b = c01b
+        self.strictly_positive = False
+
+    def set_positive(self):
+        self.strictly_positive = True
 
     def sample(self, shape):
         if self.c01b:
@@ -174,7 +178,8 @@ class Glorot(Initializer):
             receptive_field_size = np.prod(shape[2:])
 
         std = self.gain * np.sqrt(2.0 / ((n1 + n2) * receptive_field_size))
-        return self.initializer(std=std).sample(shape)
+        return self.initializer(std=std,
+                                strictly_positive=self.strictly_positive).sample(shape)
 
 
 class GlorotNormal(Glorot):

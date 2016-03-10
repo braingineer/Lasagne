@@ -408,15 +408,16 @@ class ElemwiseSumLayer(ElemwiseMergeLayer):
 
 
 class WeightedSumLayer(MergeLayer):
-    def __init__(self, incomings, weights=None, **kwargs):
+    def __init__(self, incomings, weights=None, nonlinearity=None, **kwargs):
         super(WeightedSumLayer, self).__init__(incomings, **kwargs)
         self.weights = weights or [1. for _ in incomings]
-
+        self.nonlinearity = (nonlinearities.linear if nonlinearity is None
+                                     else nonlinearity)
     def get_output_shape_for(self, input_shapes):
         return input_shapes[0]
 
     def get_output_for(self, inputs, **kwargs):
-        return sum(w*i for w,i in zip(self.weights, inputs))
+        return self.nonlinearity(sum(w*i for w,i in zip(self.weights, inputs)))
 
 
 
