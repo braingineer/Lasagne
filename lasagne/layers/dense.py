@@ -213,6 +213,9 @@ class DenseTensorLayer(Layer):
         self.num_units = num_units
 
         num_inputs = self.input_shape[-1]
+        #print(W.shape.eval())
+        ##print(num_inputs, self.num_units)
+        #assert W.shape == (num_inputs, self.num_units)
 
         self.W = self.add_param(W, (num_inputs, num_units), name="W")
         if b is None:
@@ -236,4 +239,12 @@ class DenseTensorLayer(Layer):
             outgoing = outgoing + self.b.dimshuffle('x', 0)
         if self.squash:
             outgoing = T.flatten(outgoing, self.squash)
-        return self.nonlinearity(outgoing)
+
+        if self.nonlinearity == nonlinearities.softmax:
+            reshaped = outgoing.reshape((b*n, self.num_units))
+            activation = self.nonlinearity(reshaped)
+            outgoing = activation.reshape((b,n,self.num_units))
+        else:
+            outgoing = self.nonlinearity(outgoing)
+
+        return outgoing

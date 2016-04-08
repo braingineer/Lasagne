@@ -12,7 +12,8 @@ __all__ = [
     "ElemwiseMergeLayer",
     "ElemwiseSumLayer",
     "WeightedSumLayer",
-    "AlignLayer"
+    "AlignLayer",
+    "TertiaryAlignLayer"
 ]
 
 
@@ -478,3 +479,63 @@ class AlignLayer(MergeLayer):
 
         return self.nonlinearity(outgoing)
 
+
+class TertiaryAlignLayer(MergeLayer):
+    """
+    take as input two layers and combine them by aligning with 2 weight matrices
+    and then pass them through a non linearity
+
+    optionally, the weight matrix for either of the two may be passed in
+    """
+    def __init__(self, incomings, num_units, nonlinearity=None,
+                                  W1=init.GlorotUniform(),
+                                  W2=init.GlorotUniform(), 
+                                  W3=init.GlorotUniform(),
+                                  b=init.Constant(0.),
+                                  **kwargs):
+        super(TertiaryAlignLayer, self).__init__(incomings, **kwargs)
+
+        self.nonlinearity = (nonlinearities.rectify if nonlinearity is None
+                             else nonlinearity)
+
+        self.num_units = num_units
+
+        num_in1 = self.input_shapes[0][-1]
+        num_in2 = self.input_shapes[1][-1]
+        num_in3 = self.input_shapes[2][-1]
+
+        self.W1 = self.add_param(W1, (num_in1, num_units), name="W1")
+        self.W2 = self.add_param(W2, (num_in2, num_units), name="W2")
+        self.W3 = self.add_param(W3, (num_in3, num_units), name="W3")
+
+        if b is None:
+            self.b = None
+        else:
+            self.b = self.add_param(b, (num_units,), name="b",
+                                    regularizable=False)
+
+    def get_output_shape_for(self, input_shapes):
+        """ returns (batch,embed_size) """
+        if all(len(x) for x in input_shapes):
+            return input_shapes[0][0], self.num_units
+        else:
+            return tuple(input_shapes[0][:2]) + (self.num_units, )
+        
+    def get_output_for(self, incoming, **kwargs):
+        twodim_case = all(x.ndim==2 for x in incoming)
+        out = 0.
+        for in_l, W in zip(incoming, [self.W1, self.W2, self.W3]):
+            if in_l.ndim == 3:
+                b,n,f = in_l.shape
+                out += T.dot(in_l.reshape((b*n, f)), W).reshape((b,n,self.num_units))
+            else:
+                if not twodim_case:
+                    b,_ = in_l.shape
+                    out += T.dot(in_l, W).reshape((b, 1, self.num_units))
+                else:
+                    out += T.dot(in_l, W)
+
+        if self.b is not None:
+            out = out + self.b.dimshuffle('x', 0)
+
+        return self.nonlinearity(out)
